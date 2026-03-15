@@ -2,6 +2,7 @@
 #include <memory>
 #include <iostream>
 #include <stdlib.h>
+#include "../include/timer.h"
 
 /*
 ===========================================
@@ -75,6 +76,22 @@ struct AppData
 
 /*
 ===========================================
+Timing Data 
+===========================================
+*/
+
+struct ProbeData
+{
+    uint64_t enter_ns;      // set by sink pad
+    uint64_t frame_count;   // increment by src probe
+    gboolean had_error;
+
+    ProbeData() : enter_ns(0), frame_count(0) {}
+};
+
+
+/*
+===========================================
 Helper - create elements
 ===========================================
 */
@@ -120,15 +137,50 @@ static gboolean on_bus_message(GstBus*, GstMessage* msg, gpointer user_data)
         g_main_loop_quit(app->loop);
         break;
     }
-    default:
-        break;
+
+        default:
+            break;
     }
 
     return TRUE;
 }
 
+/*
+===========================================
+Probes callback
+===========================================
+*/
 
+// Fires when raw frame ENTERS the encoder
+static GstPadProbeReturn cb_on_frame_exit(GstPad*, GstPadProbeInfo*, gpointer user_data) 
+{
+  ProbeData* pd = static_cast<ProbeData*>(user_data);
+  pd->enter_ns = get_time_ns();
+  return GST_PAD_PROBE_OK;
+}
 
+// Fires when encoded frame EXITS the encoder
+static GstPadProbeReturn cb_on_frame_enter (GstPad *, GstPadProbeInfo* info, gpointer user_data) 
+{
+    ProbeData* pd = static_cast<ProbeData*>(user_data);
+    
+    uint64_t exit_ns = get_time_ns();
+    uint64_t latency_ns = exit_ns - pd->enter_ns;
+    double latency_ms = ns_to_ms(latency_ns);
+
+    // check if this is a keyframe
+    GstBuffer* buff = GST_PAD_PROBE_INFO_BUFFER(info);
+    gboolean is_key = !GST_BUFFER_FLAG_IS_SET(buff, GST_BUFFER_FLAG_DELTA_UNIT);
+
+    pd->frame_count++;
+
+    std::cout << "[probe] frame=" << pd->frame_count
+              << " latency="      << latency_ms    << "ms"
+              << (is_key ? " [KEYFRAME]" : "")
+              << "\n";
+
+    return GST_PAD_PROBE_OK;
+}
 
 
 /*
@@ -197,9 +249,33 @@ int main(int argc, char* argv[])
             return 1;
         }
 
+
         /* 7. Attcahed bus watch */
         GstBusPtr bus(gst_element_get_bus(pipeline.get()));
         gst_bus_add_watch(bus.get(), on_bus_message, &app);
+
+        // Attached pad probes
+        ProbeData probe_data;
+        // Get the pad from the encoder element
+        GstPad* encoder_srcpad =  gst_element_get_static_pad(encoder, "src");
+        GstPad* encoder_sinkpad = gst_element_get_static_pad(encoder, "sink");
+
+        gst_pad_add_probe (encoder_sinkpad,                         // sink pad of encoder 
+                        GST_PAD_PROBE_TYPE_BUFFER,                  // fire on every buffer (frame)
+                        (GstPadProbeCallback) cb_on_frame_enter,     // callback 
+                        &probe_data,                                 // data to be passed to callback
+                        NULL);                                      // GDestroyNotify
+        
+        
+        gst_pad_add_probe (encoder_srcpad,                          // source pad of encoder 
+                        GST_PAD_PROBE_TYPE_BUFFER,                  // fire on every buffer (frame)
+                        (GstPadProbeCallback) cb_on_frame_exit,      // callback 
+                        &probe_data,                                // data to be passed to callback
+                        NULL);                                      // GDestroyNotify
+
+        gst_object_unref(encoder_srcpad);
+        gst_object_unref(encoder_sinkpad);
+
 
         /* 8. start pipeline */
         GstStateChangeReturn ret = gst_element_set_state(pipeline.get(), GST_STATE_PLAYING);
