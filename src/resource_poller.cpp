@@ -79,7 +79,7 @@ void ResourcePoller::poll_loop()
         // store snapshot
         ResourseSnapshot snap;
         snap.timestamp_ns = curr_t;
-        snap.cpu_precent = cpu_pct;
+        snap.cpu_percent = cpu_pct;
         snap.rss_kb = rss;
 
         {

@@ -2,7 +2,9 @@
 #include <memory>
 #include <iostream>
 #include <stdlib.h>
+
 #include "../include/timer.h"
+#include "../include/resource_poller.h"
 
 /*
 ===========================================
@@ -228,7 +230,7 @@ int main(int argc, char* argv[])
 
 
         // encoder: ultrafast for now so test quikly
-        g_object_set(encoder, "speed-preset", 1, nullptr);  // 1 = ultrafast
+        g_object_set(encoder, "speed-preset", 6, nullptr);  // 1 = ultrafast
         g_object_set(encoder, "tune", 4, nullptr);          // 4 = zerolatency
 
         // sink: sync false for clock - run as fast as possible
@@ -276,6 +278,9 @@ int main(int argc, char* argv[])
         gst_object_unref(encoder_srcpad);
         gst_object_unref(encoder_sinkpad);
 
+        // Resouces Poller
+        ResourcePoller poller;
+        poller.start();
 
         /* 8. start pipeline */
         GstStateChangeReturn ret = gst_element_set_state(pipeline.get(), GST_STATE_PLAYING);
@@ -291,6 +296,27 @@ int main(int argc, char* argv[])
         g_main_loop_run(loop.get());
 
         std::cout << "[main] done\n";
+
+        // stop poller
+        poller.stop();
+
+        // print summary
+        std::vector<ResourseSnapshot> snaps = poller.get_snapshots();
+        double total_cpu = 0.0;
+        long peak_rss = 0;
+
+        for(size_t i=0; i <snaps.size(); ++i)
+        {
+            total_cpu += snaps[i].cpu_percent;
+            if(snaps[i].rss_kb > peak_rss)
+                peak_rss = snaps[i].rss_kb;
+        }
+
+        double avg_cpu = snaps.empty() ? 0.0 : total_cpu / snaps.size();
+
+        std::cout << "[poller] snapshots   : " << snaps.size() << "\n";
+        std::cout << "[poller] avg CPU%    : " << avg_cpu << "%\n";
+        std::cout << "[poller] peak RSS    : " << peak_rss / 1024 << " MB\n";
 
         /* 10. Exit */
         gst_element_set_state(pipeline.get(), GST_STATE_NULL);

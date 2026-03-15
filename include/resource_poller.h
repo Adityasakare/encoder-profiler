@@ -16,7 +16,7 @@
 struct ResourseSnapshot
 {
     uint64_t timestamp_ns;  // when this was taken
-    double cpu_precent;     // CPU% over last 100ms interval
+    double cpu_percent;     // CPU% over last 100ms interval
     long rss_kb;            // physical RAM in kilobytes
 };
 
