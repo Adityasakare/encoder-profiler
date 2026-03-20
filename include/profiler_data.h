@@ -51,4 +51,28 @@ struct ResourceSnapshot
         {}
 };
 
+class ProfilerData
+{
+public:
+        mutable std::mutex frames_mutex;
+        std::vector<FrameRecord> frames;
+
+        std::atomic<uint64_t> frame_count{0};
+
+        mutable std::mutex snapshots_mutex;
+        std::vector<ResourceSnapshot> snapshots;
+
+
+        ProfilerData() = default;
+        ~ProfilerData() = default;
+
+        ProfilerData(const ProfilerData&) = delete;
+        ProfilerData& operator=(const ProfilerData&) = delete;
+
+        void add_frame(FrameRecord record);
+        void add_snapshot(ResourceSnapshot snap);
+        std::size_t snapshot_count() const;
+        void reverse_frames(std::size_t n);
+};
+
 #endif
